@@ -6,6 +6,10 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait as driver_wait
 from selenium.webdriver.support import expected_conditions as EC
 
+#comment
+#another comment
+#ano one more
+
 from time import sleep
 from datetime import datetime
 import sys, codecs, random, sqlite3
@@ -22,6 +26,9 @@ sys.stdout = codecs.getwriter('utf-8')(sys.stdout.detach())
 
 
 class Sota:
+    """
+
+    """
     def __init__(self, page="https://onlinesrv.office.intelserv.com:100/", dev = True):
         # self.driver = webdriver.Ie('C:\\geckodriver.exe', timeout=5)
         # self.driver = webdriver.Ie('C:\\IEDriverServer.exe')
