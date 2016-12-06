@@ -2,9 +2,13 @@
 
 from selenium import webdriver
 from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait as driver_wait
+from selenium.webdriver.support import expected_conditions as EC
+
 from time import sleep
 from datetime import datetime
-import sys, codecs, random
+import sys, codecs, random, sqlite3
 
 sys.stdin = codecs.getwriter('utf-8')(sys.stdin.detach())
 sys.stdout = codecs.getwriter('utf-8')(sys.stdout.detach())
