@@ -22,7 +22,7 @@ class Sota:
         self.driver.get(page)
         self._logging("Starting webdriver...")
         
-        self._subMenus = ['reporting', 'govqry', 'persons']
+        self._subMenus = {'reporting': 'Звіти - СОТА', 'govqry': 'Інформаційна довідка - СОТА', 'persons': 'Співробітники - СОТА'}
         
         if self.driver.title.lower().startswith('ошибка сертификата') and dev:
             self.driver.find_element_by_name('overridelink').send_keys(Keys.RETURN)
@@ -64,12 +64,12 @@ class Sota:
         return day + mon + '2015'
     
     def goTo(self, subMenu):
-        if subMenu in self._subMenus:
+        if subMenu in self._subMenus.keys():
             self.driver.find_element_by_class_name("submenu-icon").click()
             self.driver.find_element_by_xpath("//a[@href=\"/"+subMenu+"\"]").send_keys(Keys.RETURN)
             try:
                 WebDriverWait(self.driver, 15).until(
-                    EC.title_is('Співробітники - СОТА')
+                    EC.title_is(self._subMenus[subMenu])
                 )
             except:
                 print("Can't load page! Trying to go to " + subMenu)
@@ -193,7 +193,7 @@ class Sota:
                     # EC.presence_of_element_located((By.CLASS_NAME, "submenu-icon"))
                 # )            
                 break
-                
+
         sleep(2)
         self.goTo('persons')
             
