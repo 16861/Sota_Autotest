@@ -8,7 +8,7 @@ from selenium.webdriver.support import expected_conditions as EC
 
 #comment
 #another comment
-#ano one more
+#and one more
 
 
 
@@ -34,7 +34,8 @@ class Sota:
     def __init__(self, page="https://onlinesrv.office.intelserv.com:100/", dev = True):
         # self.driver = webdriver.Ie('C:\\geckodriver.exe', timeout=5)
         # self.driver = webdriver.Ie('C:\\IEDriverServer.exe')
-        self.driver = webdriver.Ie('C:\\chromedriver.exe')
+        # self.driver = webdriver.Ie('C:\\chromedriver.exe')
+        self.driver = webdriver.Chrome('/home/espadon/programming/Sota_Autotest/WebDrivers')
         self.driver.set_page_load_timeout(10)
         self.driver.get(page)
         self._logging("Starting webdriver...")
@@ -189,7 +190,7 @@ class Sota:
         self.driver.find_element_by_xpath("//a[@data-edrpou=\""+ edrpou +"\"]").click()
         
 
-sota = Sota(page="https://sota-buh.com.ua:8080")
+sota = Sota(page="https://sota-buh.com.ua")
 sota.login()
 
 sota.goTo('persons')
