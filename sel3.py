@@ -9,20 +9,34 @@ from selenium.webdriver.support import expected_conditions as EC
 
 from time import sleep
 from datetime import datetime
-import sys, codecs, random, sqlite3
+import sys, codecs, random, sqlite3, re
 
+
+def init_db():
+    conn = sqlite3.connect("sota.sdb")
+    conn.execute('''
+        CREATE TABLE IF NOT EXISTS created_docs(
+            ID INTEGER PRIMARY KEY,
+            CARDCODE VARCHAR(20) NOT NULL UNIQUE,
+            TYPE INTEGER,
+            DATE VARCHAR(15) NOT NULL,
+            SESSION INTEGER
+        )
+    ''')
+
+
+
+    conn.commit()
+    conn.close()
 
 class Sota:
-    """
-
-    """
     def __init__(self, page="https://onlinesrv.office.intelserv.com:100/", dev = True):
         self.driver = webdriver.Chrome('/home/espadon/programming/Sota_Autotest/WebDrivers/geckodriver')
         self.driver.set_page_load_timeout(20)
         self.driver.get(page)
         self._logging("Starting webdriver...")
         
-        self._subMenus = {'reporting': 'Звіти - СОТА', 'govqry': 'Інформаційна довідка - СОТА', 'persons': 'Співробітники - СОТА'}
+        self._subMenus = {'reporting': 'Звіти - СОТА', 'govqry': 'Інформаційна довідка - СОТА', 'primarydocs': 'Реєстр первинних документів - СОТА', 'persons': 'Співробітники - СОТА'}
         
         if self.driver.title.lower().startswith('ошибка сертификата') and dev:
             self.driver.find_element_by_name('overridelink').send_keys(Keys.RETURN)
@@ -30,13 +44,19 @@ class Sota:
         #create log file
         with open('log.lg', 'w') as fd:
             pass
+
+        #name of db
+        self.db_name = "sota.sdb"
     
     def _closePopUp(self):
         try:
-            self.driver.find_element_by_class('popup-window-head');
-            self.driver.find_element_by_class('popup-icon-close').click();
+            WebDriverWait(self.driver, 8).until(
+                EC.presence_of_element_located((By.CLASS_NAME, 'popup-window-head'))
+            )
+            self.driver.find_element_by_id('popup_ok').click()
+            return True
         except:
-            pass
+            return False
     
     def _logging(self, mes):
         #logging steps into a file
@@ -62,6 +82,47 @@ class Sota:
         # year = '2015'
         
         return day + mon + '2015'
+
+    def _getCardcode(self):
+        try:
+            return re.search('[0-9]+', self.driver.current_url).group(0)
+        except:
+            return None
+
+    def _fillNN(self):
+        self.driver.find_element_by_xpath('//div[@class="fc N2_11"]').click()
+
+    def getCurrentOrg(self):
+        while True:
+            elm = self.driver.find_element_by_xpath("//div[@class=\"list-companies\"]/a[@class=\"user-logined\"]").get_attribute('innerHTML')
+            edrpou = re.search("[0-9]+", elm).group(0)
+
+            if edrpou != '3434343434':
+                break
+            sleep(2)
+
+        return edrpou
+
+    def getOrgsWithMail(self):
+        WebDriverWait(self.driver, 15).until (
+            EC.presence_of_element_located((By.CLASS_NAME, "notification"))
+        ).click()
+
+        WebDriverWait(self.driver, 15).until (
+            EC.presence_of_element_located((By.CLASS_NAME, "notification-table"))
+        )
+
+        return_list = []
+
+        for elm in self.driver.find_elements_by_xpath("//td[@class=\"notification-text\"]/p/span"):
+            if len(re.search("[0-9]+", elm.get_attribute('innerHTML')).group(0)) in [10, 8]:
+                return_list.append(re.search("[0-9]+", elm.get_attribute('innerHTML')).group(0))
+
+        return return_list
+
+
+
+
     
     def goTo(self, subMenu):
         if subMenu in self._subMenus.keys():
@@ -104,6 +165,25 @@ class Sota:
             exit(1)
 
 
+        #self.recieveMsg()
+
+    def recieveMsg(self, edrpou = None):
+        if not edrpou:
+            edrpou = self.getCurrentOrg()
+
+        if edrpou in self.getOrgsWithMail():
+            self.driver.find_element_by_xpath("//td[@class=\"notification-text\"]/p/span[contains(text(), \"" + edrpou + "\")]").click()
+            if self._closePopUp():
+                WebDriverWait(self.driver, 15).until(
+                    EC.presence_of_element_located((By.ID, 'CryptoNotFounddWindow'))
+                )
+                
+                # self.driver.find_element_by_xpath("//div[@class=\"popup-window-head\"]/span[@class=\"popup-icon-close\"]").click()
+                
+        else:
+            print(False)
+
+
     def createReport(self, charcode = 'J0200118'):
         if not self.driver.title.lower().startswith("вибір звіту"):
             if not self.driver.title.lower().startswith("звіти"):
@@ -144,6 +224,32 @@ class Sota:
             self.driver.find_element_by_class_name('add-icon').click()
         
         self.goTo('govqry')
+
+    def createNN(self):
+        if not self.driver.title.startswith(self._subMenus['primarydocs']):
+            self.goTo('primarydocs')
+        
+        WebDriverWait(self.driver, 10).until(
+            EC.presence_of_element_located((By.CLASS_NAME, 'add-icon'))
+        ).click()
+
+        WebDriverWait(self.driver, 10).until(
+            EC.presence_of_element_located((By.ID, 'taxBill'))
+        ).click()
+
+        WebDriverWait(self.driver, 10).until(
+            EC.presence_of_element_located((By.XPATH, '//a[@class="doc-button check-icon"]'))
+        )
+
+        
+        self._fillNN()
+
+
+    def createRK(self, negative=True):
+        pass
+
+    def createSourceDoc(self, charcode=None):
+        pass
 
     def createPerson(self):
         if not self.driver.title.lower().startswith("співробітники"):
@@ -204,7 +310,9 @@ class Sota:
         
     def changeOrg(self, edrpou):
         # sleep(4)
-        self.driver.find_element_by_xpath("//div[@class=\"list-companies\"]").click()
+        WebDriverWait(self.driver, 10).until(
+            EC.presence_of_element_located((By.XPATH, "//div[@class=\"list-companies\"]"))
+        ).click()
         self.driver.find_element_by_xpath("//a[@data-edrpou=\""+ edrpou +"\"]").click()
         WebDriverWait(self.driver, 10).until(
                     EC.presence_of_element_located((By.XPATH, '//a[@class=\"user-logined\" and @data-edrpou=\"' + edrpou + '\"]'))
@@ -214,18 +322,10 @@ class Sota:
 
 sota = Sota(page="https://sota-buh.com.ua")
 sota.login()
+# sota.recieveMsg()
+
 sota.changeOrg('38267550')
+sota.createNN()
+# sota.changeOrg('34554355')
 
-sota.goTo('persons')
-for _ in range(3):
-    sota.createPerson()
-
-
-# sota.changeOrg('3693693691')
-# sota.goTo('govqry')
-# sota.createQuery()
-
-
-# sota.changeOrg('36936969')
-# sota.goTo('govqry')
-# sota.createQuery()
+# init_db()
