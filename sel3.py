@@ -9,29 +9,141 @@ from selenium.webdriver.support import expected_conditions as EC
 
 from time import sleep
 from datetime import datetime
-import sys, codecs, random, sqlite3, re
+import random, sqlite3, re
 
 
-def init_db():
-    conn = sqlite3.connect("sota.sdb")
-    conn.execute('''
-        CREATE TABLE IF NOT EXISTS created_docs(
-            ID INTEGER PRIMARY KEY,
-            CARDCODE VARCHAR(20) NOT NULL UNIQUE,
-            TYPE INTEGER,
-            DATE VARCHAR(15) NOT NULL,
-            SESSION INTEGER
-        )
-    ''')
+DBNAME = "sota.sdb"
+
+#sign statuses
+DIR = 1
+DIR_SIGN = 2
+BUH_DIR_SIGN = 3
+
+class DBSota:
+    def __init__(self):
+        self._dbname = DBNAME
+
+
+    def _exec(self, script):
+        '''
+        returns cursor on 
+        '''
+        ret = None
+        with sqlite3.connect(self._dbname) as db:
+            ret = db.execute(script)
+        return ret
+
+    def _getCurTime(self):
+        return datetime.now().strftime("%d-%m-%y_%I:%M:%S")
+
+    def _initScripts(self):
+        init = '''
+            CREATE TABLE IF NOt EXISTS querycharcodes(
+                charcode VARCHAR(12) NOT NULL UNIQUE
+            );
+        '''
+
+
+    def initScript(self):
+        self._exec('''
+        CREATE TABLE IF NOT EXISTS createddocs(
+            cardcode VARCHAR(20) NOT NULL UNIQUE,
+            charcode VARCHAR(10) NOT NULL,
+            sessionid VARCHAR(40) NOT NULL,
+            time VARCHAR(20) NOT NULL
+        );
+        ''')
+
+    @property
+    def createddocs(self):
+        return [x for x in self._exec('select * from createddocs;')]
+
+    @createddocs.setter
+    def createddocs(self, values):
+        # 
+        # accept a dict as an input argument
+        # 
+        #add only unique cardcodes
+        for ch in self._exec('select cardcode from createddocs;'):
+            if ch[0] == values['cardcode']:
+                return
+        
+        self._exec("insert into createddocs values('{0}','{1}','{2}','{3}');".format(values["cardcode"],
+        values["charcode"], values["sessionid"], self._getCurTime()))
+
+        self._createddocs = [x for x in self._exec('select * from createddocs;')]
+
+    @createddocs.deleter
+    def createddocs(self):
+        self._exec("delete from createddocs;")
+        self._createddocs = []
+
+    
+
+    @property
+    def querycharcodes(self):
+        return [x for x in self._exec('select * from querycharcodes;')]
+
+    @querycharcodes.setter
+    def querycharcodes(self, charcode):
+        #add only unique charcode
+        for ch in self._exec('select * from querycharcodes;'):
+            if ch[0] == charcode:
+                return
+
+        self._exec("insert into querycharcodes values('" + str(charcode) + "');")
+        self._querycharcodes = [x for x in self._exec('select * from querycharcodes;')] 
+
+    @querycharcodes.deleter
+    def querycharcodes(self):
+        self._exec("delete from querycharcodes;")
+        self._querycharcodes = []
+        
 
 
 
-    conn.commit()
-    conn.close()
 
 class Sota:
+    
+    class Doc:
+        def __init__(self, cardcode = None, charcode = None, owner = None):
+            self.cardcode = cardcode
+            self.charcode = charcode
+            self.owner = owner
+
+        @property
+        def cardcode(self):
+            return self.cardcode
+        
+        @cardcode.setter
+        def cardcode(self, val):
+            self.cardcode = val
+
+        @property
+        def charcode(self):
+            return self.charcode
+        
+        @cardcode.setter
+        def charcode(self, val):
+            self.charcode = val
+
+        @property
+        def owner(self):
+            return self.owner
+        
+        @cardcode.setter
+        def owner(self, val):
+            self.owner = val
+
+        
+    class Report(Doc):
+        def getDocUrl(self):
+            return "http://sota-buh.com.ua/reporting/opendoc?cardCode=" + self.cardcode + "&path=reporting"
+        
+    
     def __init__(self, page="https://onlinesrv.office.intelserv.com:100/", dev = True):
-        self.driver = webdriver.Chrome('/home/espadon/programming/Sota_Autotest/WebDrivers/geckodriver')
+        self._site = page
+        self.driver = webdriver.Chrome('/home/espadon/programming/Sota_Autotest/WebDrivers/chromedriver')
         self.driver.set_page_load_timeout(20)
         self.driver.get(page)
         self._logging("Starting webdriver...")
@@ -46,7 +158,16 @@ class Sota:
             pass
 
         #name of db
-        self.db_name = "sota.sdb"
+        self._db = DBSota()
+        # self._db.initScript()
+        self.createdDocs = []
+
+        self._docStatuses = (1, #uncheck
+        2, #checked no error
+        3, #checked, errors exists
+        4, #signed
+        )
+
     
     def _closePopUp(self):
         try:
@@ -63,7 +184,7 @@ class Sota:
         with open('log.lg', 'a') as fd:
             fd.write(datetime.now().strftime("%d-%m-%y_%I:%M:%S") + ' '  + str(mes) + "\n")
             
-    def _get_all_chcode(self):
+    def _getAllChcodes(self):
         ret = []
         # sleep(3)
         for el in self.driver.find_elements_by_xpath("//table[@id=\"selTmplGrid\"]/tbody/tr/td[@class=\"sorting_1\"]"):
@@ -92,6 +213,74 @@ class Sota:
     def _fillNN(self):
         self.driver.find_element_by_xpath('//div[@class="fc N2_11"]').click()
 
+    def _sendDoc(self, sign_status):
+        def sign():
+            WebDriverWait(self.driver, 10).until(
+                EC.visibility_of_element_located((By.XPATH, "//input[@autocomplete=\"off\"]"))
+            ).send_keys('123')
+            self.driver.find_element_by_class_name("ok-button").click()
+
+            try:
+                WebDriverWait(self.driver, 10).until(
+                    EC.visibility_of_element_located((By.ID, "certList"))
+                )
+                self.driver.find_element_by_xpath("//table[@id=\"certList\"]/tbody/tr/td[contains(text(), \"Директор\")]").click()
+                self.driver.execute_script("document.getElementsByClassName('ok-button')[1].click()")
+              
+            except:
+                self.driver.execute_script("document.getElementsByClassName('ok-button')[1].click()")
+
+        doc_status =  self.driver.find_element_by_xpath("//div[@id=\"docActions\"]/div[@class=\"document-status has-error\"]").get_attribute('innerHTML')
+        print("Doc: " + doc_status)
+
+        if "готовий до подачі" in doc_status:
+            return
+
+        try:
+            self.driver.find_element_by_xpath("//a[@data-docaction=\"check\"]").click()
+        except:
+            pass
+
+        sleep(1)
+
+        try:
+            WebDriverWait(self.driver, 10).until(
+                EC.visibility_of_element_located((By.XPATH, "//a[@data-docaction=\"forsign\"]"))
+            ).click()
+        except:
+            self.driver.find_element_by_xpath("//a[@data-docaction=\"sign\"]").click()
+        
+        if sign_status == DIR:
+            sign()
+        elif sign_status == DIR_SIGN:
+            sign()
+        else:
+            sign()
+
+
+    def _getCharcodeOfDoc(self):
+        try:
+            return self.driver.find_element_by_xpath("//div[@class=\"breadcrumbs\"]/ul/li[2]/a").get_attribute('innerHTML')
+        except:
+            return None
+
+    def _getDocStatus(self):
+        doc_status =  self.driver.find_element_by_xpath("//div[@id=\"docActions\"]/div[@class=\"document-status has-error\"]").get_attribute('innerHTML')
+        if "Документ готується" in doc_status:
+            return 1
+        elif "не містить помилок" in doc_status:
+            return 2
+        elif "Документ містить помилки" in doc_status:
+            return 3
+        else:
+            return 4
+
+    def _openReport(self, cardcode):
+        self.driver.get(self._site + "/reporting/opendoc?cardCode=" + cardcode)
+        
+    def getSessionID(self):
+        return self.driver.session_id
+
     def getCurrentOrg(self):
         while True:
             elm = self.driver.find_element_by_xpath("//div[@class=\"list-companies\"]/a[@class=\"user-logined\"]").get_attribute('innerHTML')
@@ -100,6 +289,8 @@ class Sota:
             if edrpou != '3434343434':
                 break
             sleep(2)
+
+ 
 
         return edrpou
 
@@ -151,6 +342,13 @@ class Sota:
         phone.send_keys(name)
         pass_.clear()
         pass_.send_keys(userPass)
+
+        # with sqlite3.connect(DB_NAME) as con:
+        #     cur = con.execute("SELECT sign_status FROM users WHERE phone = '{0}';".format(phone))
+        #     if cur.rowcount == -1:
+        #         con.execute("insert into users(phone, password) values('{0}', '{1}');".format(phone, pass_))
+                
+        # self._user_name = phone
         
         pass_.send_keys(Keys.RETURN)
         
@@ -185,10 +383,9 @@ class Sota:
 
 
     def createReport(self, charcode = 'J0200118'):
-        if not self.driver.title.lower().startswith("вибір звіту"):
-            if not self.driver.title.lower().startswith("звіти"):
-                self.goTo('reporting')
-            self.driver.find_element_by_class_name('add-icon').click() 
+        if not self.driver.title.lower().startswith("звіти"):
+            self.goTo('reporting')
+        self.driver.find_element_by_class_name('add-icon').click() 
         self.driver.find_element_by_xpath("//tr[@class=\"datatables-filter-row\"]/th/div/label/input[@type=\"text\"]").send_keys(charcode[:4])
         list_filtered_reports = self.driver.find_elements_by_xpath("//table[@id=\"selTmplGrid\"]/tbody/tr/td[@class=\"sorting_1\"]") # getting all available charcodes
         
@@ -196,7 +393,9 @@ class Sota:
             if charcode in str(el.get_attribute('innerHTML')):
                 el.click()
                 break
-                
+
+        newDoc.append(Report(self._getCardcode(), charcode))
+        self._logging("Created report: charcode " + charcode + ", cardcode " + self._getCardcode())
 
                 
     def createQuery(self, charcode='All'):
@@ -210,7 +409,8 @@ class Sota:
         
         
         if charcode == "All":
-            list_of_chcodes = self._get_all_chcode()
+            list_of_chcodes = self._getAllChcodes()
+            print(list_of_chcodes)
         else:
             list_of_chcodes = [charcode]
         
@@ -220,10 +420,72 @@ class Sota:
                     self._logging("creating document with charocode: " + str(el.get_attribute('innerHTML')))
                     el.click()
                     break
-            # sleep(5)
-            self.driver.find_element_by_class_name('add-icon').click()
+
+            sleep(2)
+            self._db.createddocs = {'cardcode': self._getCardcode(), 'charcode': self._getCharcodeOfDoc(), 'sessionid': self.getSessionID() }
+            WebDriverWait(self.driver, 10).until(
+                EC.visibility_of_element_located((By.ID,'newReport'))
+            ).click()
         
         self.goTo('govqry')
+
+    def copyCrtQuery(self):
+        for cardcode in self.createdDocs:
+            self._openReport(cardcode)
+            sleep(2)
+            self.driver.find_element_by_class_name("copy-icon").click()
+            WebDriverWait(self.driver, 10).until(
+                EC.presence_of_element_located((By.ID, 'periodSelectWindow'))
+            )
+            sleep(2)
+
+    def printCrtQuery(self):
+        for cardcode in self.createdDocs:
+            self._openReport(cardcode)
+            sleep(2)
+            self.driver.execute_script("document.getElementsByClassName('print-icon')[0].click()")
+            sleep(3)
+           
+
+    def fillSendQuery(self, cardcode = None, sign_status = DIR):
+        if not cardcode:
+            return 
+
+        self.driver.get("https://sota-buh.com.ua/reporting/opendoc?cardCode=" + cardcode + "&path=govqry")
+
+        
+        charcode = self._getCharcodeOfDoc()
+        if charcode == 'J1300104':
+            try:
+
+                WebDriverWait(self.driver, 10).until(
+                    EC.visibility_of_element_located((By.XPATH, "//div[@p=\"N5\"]"))
+                ).click()
+                WebDriverWait(self.driver, 10).until(
+                    EC.visibility_of_element_located((By.XPATH, "//div[@class=\"editor date-editor\"]/input[@type=\"text\"]"))
+                ).send_keys("09.12.2016")
+                               
+                WebDriverWait(self.driver, 10).until(
+                    EC.visibility_of_element_located((By.XPATH, "//div[@p=\"N7\"]"))
+                ).click()
+            
+                WebDriverWait(self.driver, 10).until(
+                    EC.visibility_of_element_located((By.ID, "cc"))
+                ).click()
+
+                self.driver.find_element_by_xpath("//div[@p=\"N8\"]").click()
+                WebDriverWait(self.driver, 10).until(
+                    EC.visibility_of_element_located((By.ID, "cc"))
+                ).click()
+
+            except TimeoutException:
+                pass
+        elif charcode == '':
+            pass
+        
+
+        self._sendDoc(sign_status)
+
 
     def createNN(self):
         if not self.driver.title.startswith(self._subMenus['primarydocs']):
@@ -315,17 +577,25 @@ class Sota:
         ).click()
         self.driver.find_element_by_xpath("//a[@data-edrpou=\""+ edrpou +"\"]").click()
         WebDriverWait(self.driver, 10).until(
-                    EC.presence_of_element_located((By.XPATH, '//a[@class=\"user-logined\" and @data-edrpou=\"' + edrpou + '\"]'))
-            )
-        
+            EC.presence_of_element_located((By.XPATH, '//a[@class=\"user-logined\" and @data-edrpou=\"' + edrpou + '\"]'))
+        )  
+
+    def closeDriver(self):
+        self.driver.close()
+        exit(0)   
+
 
 
 sota = Sota(page="https://sota-buh.com.ua")
 sota.login()
+sota.createQuery('J1300104')
+sota.closeDriver()
+
+
+# sota.copyCrtQuery()
+# sota.printCrtQuery()
 # sota.recieveMsg()
 
-sota.changeOrg('38267550')
-sota.createNN()
+# sota.changeOrg('38267550')
+# sota.fillSendQuery("17168120")
 # sota.changeOrg('34554355')
-
-# init_db()
