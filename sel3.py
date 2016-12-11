@@ -76,7 +76,7 @@ class DBSota:
     @createddocs.deleter
     def createddocs(self):
         self._exec("delete from createddocs;")
-        self._createddocs = []
+        del(self._createddocs)
 
     
 
@@ -97,7 +97,7 @@ class DBSota:
     @querycharcodes.deleter
     def querycharcodes(self):
         self._exec("delete from querycharcodes;")
-        self._querycharcodes = []
+        del(self._querycharcodes)
         
 
 
