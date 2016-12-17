@@ -5,9 +5,10 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait 
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
 
 
-from time import sleep
+from time import sleep, time
 from datetime import datetime
 import random, sqlite3, re
 
@@ -143,12 +144,18 @@ class Sota:
     
     def __init__(self, page="https://onlinesrv.office.intelserv.com:100/", dev = True):
         self._site = page
-        self.driver = webdriver.Chrome('/home/espadon/programming/Sota_Autotest/WebDrivers/chromedriver')
+        capabilities = DesiredCapabilities.CHROME
+        capabilities['loggingPrefs'] = { 'browser':'ALL' }
+        self.driver = webdriver.Chrome('/home/espadon/programming/Sota_Autotest/WebDrivers/chromedriver', desired_capabilities=capabilities)
         self.driver.set_page_load_timeout(20)
         self.driver.get(page)
         self._logging("Starting webdriver...")
         
-        self._subMenus = {'reporting': 'Звіти - СОТА', 'govqry': 'Інформаційна довідка - СОТА', 'primarydocs': 'Реєстр первинних документів - СОТА', 'persons': 'Співробітники - СОТА'}
+        self._subMenus = {'reporting': 'Звіти - СОТА', 
+        'govqry': 'Інформаційна довідка - СОТА', 
+        'primarydocs': 'Реєстр первинних документів - СОТА', 
+        'persons': 'Співробітники - СОТА',
+        'enterprise': 'Підприємство - СОТА' }
         
         if self.driver.title.lower().startswith('ошибка сертификата') and dev:
             self.driver.find_element_by_name('overridelink').send_keys(Keys.RETURN)
@@ -274,6 +281,20 @@ class Sota:
             return 3
         else:
             return 4
+    
+    def _getFiltersList(self):
+        WebDriverWait(self.driver, 10).until(
+            EC.visibility_of_element_located((By.CLASS_NAME, 'datatables-filter-row'))
+        )
+
+        return self.driver.find_elements_by_xpath('//tr[@class="datatables-filter-row"]/th')
+
+    def _getContentOfTable(self):
+        WebDriverWait(self.driver, 10).until(
+            EC.visibility_of_element_located((By.CLASS_NAME, 'dataTables_scrollBody'))
+        )
+        return self.driver.find_elements_by_xpath("//div[@class=\"dataTables_scrollBody\"]/table/tbody/tr")
+
 
     def _openReport(self, cardcode):
         self.driver.get(self._site + "/reporting/opendoc?cardCode=" + cardcode)
@@ -294,7 +315,7 @@ class Sota:
 
         return edrpou
 
-    def getOrgsWithMail(self):
+    def getOrgsdqWithMail(self):
         WebDriverWait(self.driver, 15).until (
             EC.presence_of_element_located((By.CLASS_NAME, "notification"))
         ).click()
@@ -582,14 +603,247 @@ class Sota:
 
     def closeDriver(self):
         self.driver.close()
-        exit(0)   
+        exit(0)
+
+    def deleteAllUnsignedReports(self, charcode):
+        if not self.driver.title.lower().startswith(self._subMenus['reporting']):
+            self.goTo('reporting')
+        
+        #mark all delted reports
+        reports = self.driver.find_elements_by_css_selector(".child-rows-control.has-child-rows")
+        print(reports)
+        # reports[0].click()
+
+        checkboxes = self.driver.find_elements_by_class_name(" select-checkbox")
+        print("Len: ", len(checkboxes))
+        for ch in  checkboxes:
+            try:
+                print("Loc of el: " + str(ch.location['y'] + ch.size['height']))
+                print(str(ch.location['y']) + " " + str(ch.size['height']))
+                webdriver.ActionChains(self.driver).move_to_element(ch).click(ch).perform()
+                # self.driver.execute_script("window.scrollTo({0},{1});".format(ch.location['x'], ch.size['height']+50))
+                # ch.click()
+            except:
+                print("Loc of el: " + str(ch.location['x'] + ch.size['height']+50))
+                print(str(ch.location['y'] + ch.size['height']))
+                self.driver.execute_script("window.scrollTo(0,{0});".format(ch.location['y']+50))
+                sleep(1)
+                ch.click()
+
+    def processReports(self):
+        if not self.driver.title.lower().startswith(self._subMenus['reporting']):
+            self.goTo('reporting')
+
+        list = self.driver.find_elements_by_xpath("//table[@id=\"reportsTable\"]/tbody/tr")
+        print(len(list))
+
+        for el in list:
+            attr = el.get_attribute('class')
+            if  attr == 'odd' or attr == "even" or attr == "odd gree" or attr == "even green":
+                print("Single report or report spoiled report ")
+                print("name", re.search("class=\" hover-underline\">(.+?)<", el.get_attribute("innerHTML")).group(1), True)
+                try:
+                    print("charcode " + re.search("class=\"child-rows-control has-child-rows\"><span></span>(.+?)<", el.get_attribute("innerHTML")).group(1))
+                except:
+                    print("charcode " + re.search("class=\"  child-rows-control\">(.+?)<", el.get_attribute("innerHTML")).group(1))
+                print("status" + re.search(">(Новий|Неприйнятий)<", el.get_attribute("innerHTML")).group(1))
+                print("date of modification" + re.search("class=\"dt-body-right sorting_1\">(.+?)<", el.get_attribute("innerHTML")).group(1))
+
+            elif attr == "odd parent" or attr == "even parent":
+                print("Open parent report")
+                # print(el.find_element_by_xpath(".//td[@class=\"hover-underline.sorting_1\"]").get_attribute("innerHTML"))
+            elif attr == "child child-row":
+                print("Child rows")
+            # print("HTML: " + el.get_attribute('innerHTML'))
+            # el.find_element_by_css_selector('')
+
+    def executeCommand(self, command):
+        print(self.driver.execute_script(command))
+
+        for entry in self.driver.get_log('browser'):
+           print(re.search('[0-9]+:[0-9]+ (.+)', entry['message']).group(1))
 
 
+class Enterprise:
+    def __init__(self, welement = None, name = None, edrpou = None, license = None, status = None):
+        self._elem = welement
+        self._name = name
+        self._edrpou = edrpou
+        self._license = license
+        self._status = status
 
-sota = Sota(page="https://sota-buh.com.ua")
-sota.login()
-sota.createQuery('J1300104')
-sota.closeDriver()
+    @property
+    def elem(self):
+        return self._elem
+
+    @elem.setter
+    def elem(self, val):
+        self._elem = val
+
+    @elem.deleter
+    def elem(self):
+        del self._elem        
+    
+    @property
+    def name(self):
+        return self._name
+
+    @name.setter
+    def name(self, val):
+        self._name = val
+
+    @name.deleter
+    def name(self):
+        del self._name
+
+    @property
+    def edrpou(self):
+        return self._edrpou
+
+    @edrpou.setter
+    def edrpou(self, val):
+        self._sedrpou = val
+
+    @edrpou.deleter
+    def edrpou(self):
+        del self._edrpou
+
+    @property
+    def license(self):
+        return self._license
+
+    @license.setter
+    def license(self, val):
+        self._license = val
+
+    @license.deleter
+    def license(self):
+        del self._license
+
+    @property
+    def status(self):
+        return self._status
+
+    @status.setter
+    def status(self, val):
+        self._status = val
+
+    @status.deleter
+    def status(self):
+        del self._status
+
+    def __str__(self):
+        return "Edrpou: {0}\nName: {1} \nLicense: {2} \nStatus: {3} \n".format(self._edrpou, self._name, self._license, self._status)
+
+class Enterprises(Sota):
+
+    def getListOfEnterprises(self):
+        if not self.driver.title.lower().startswith(self._subMenus['enterprise']):
+            self.goTo('enterprise')
+
+        self.cur_enterprises = []
+
+        for el in self.driver.find_elements_by_xpath('//table[@id=\"orgs\"]/tbody/tr'):
+            html = el.get_attribute('innerHTML')
+            attr = [y.replace('<td class="sorting_1">', '')  for y in re.findall('td>(.+?)</td', html)]
+            self.cur_enterprises.append(Enterprise(el, attr[1], attr[0], attr[2], attr[3]))
+
+        # [print(e) for e in self.cur_enterprises]
+
+        return self.cur_enterprises
+
+    def goToEnterprise(self, edrpou):
+        if not self.driver.title.lower().startswith(self._subMenus['enterprise']):
+            self.goTo('enterprise')
+
+        list = self.getListOfEnterprises()
+        for ent in list:
+            if ent.edrpou == edrpou:
+                ent.elem.find_element_by_class_name('sorting_1').click()
+                WebDriverWait(self.driver, 5).until(
+                    EC.visibility_of_element_located((By.XPATH, "//div[@class=\"breadcrumbs\"]/ul/li/a[contains(text(), \"" + edrpou +  "\")]"))
+                )
+                break
+
+    def testDicts(self):
+        # open dicts in modal window
+
+        start_time = time()
+        
+        for dict_el in self.driver.find_elements_by_xpath("//span[@class=\"dictionary-field-icons\"]"):
+            dict_el.find_element_by_xpath(".//img[@alt=\"select\"]").click()
+
+            #select various item count
+            WebDriverWait(self.driver, 10).until(
+                EC.visibility_of_element_located((By.CLASS_NAME, 'dataTables_length'))
+            )
+            show_records = self.driver.find_elements_by_xpath("//div[@class=\"dataTables_length\"]/label/select/option")
+
+            for el in show_records[1:]:
+                el.click()
+                sleep(3) #check result
+            show_records[0].click()
+            sleep(2) #waiting while page is reloading
+
+
+            filter_list = self._getFiltersList()
+            list_of_content = []
+            for el in self._getContentOfTable():
+                list_of_content.append(re.findall('>([^<>].+?)<', el.get_attribute('innerHTML')))
+
+            n = 0
+            for filter in filter_list:
+                try:
+                    filter.find_element_by_xpath('.//input[@type="text"]').send_keys(list_of_content[1][n])
+                    n = n+1
+                    sleep(2)
+                    filter.find_element_by_xpath('.//input[@type="text"]').clear()
+                except:
+                    continue
+            sleep(2)
+            self.driver.execute_script("document.getElementsByClassName('ok-button')[0].click()")
+
+            WebDriverWait(self.driver, 10).until(
+                EC.visibility_of_element_located((By.XPATH, "//span[@class=\"dictionary-field-icons\"]"))
+            )
+            input_field = dict_el.find_element_by_xpath(".//input[@autocomplete=\"off\"]")
+            input_field.send_keys(list_of_content[1][1][:4])
+            sleep(2)
+            input_field.send_keys(Keys.DOWN)
+            input_field.send_keys(Keys.UP)
+            sleep(2)
+            input_field.send_keys(Keys.RETURN)
+
+        # self.driver.find_element_by_class_name('save-icon').click()
+
+        print("Time of execution: ", time() - start_time)
+            
+            
+     
+            
+
+
+new_test = Enterprises(page="https://sota-buh.com.ua")
+new_test.login()
+# new_test.getListOfEnterprises()
+new_test.goToEnterprise('36936969')
+new_test.testDicts()
+sleep(2)
+new_test.closeDriver()
+# sota = Sota(page="https://sota-buh.com.ua")
+# sota.login()
+# sota.goTo('enterprise')
+# sota.processReports()
+# sota.goTo('reporting')
+# sota.executeCommand('''x = document.getElementsByClassName('select-checkbox'); for (var i = 0; i < x.length; i++) {
+#    x[i].click(); //second console output
+# }''')
+# sota.executeCommand("document.getElementsByClassName('select-checkbox')")
+# sota.executeCommand("console.log(21321312)")
+# sota.executeCommand("console.log('Messsage')")
+
+# sleep(3)
+# sota.closeDriver()
 
 
 # sota.copyCrtQuery()
